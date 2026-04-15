@@ -184,7 +184,7 @@ struct Cotxe {
 };
 
 int main() {
-    InitWindow(800, 600, "F1 Evolutiu - Motor PNG de Corbes");
+    InitWindow(800, 600, "Cotxes evolutius");
     SetTargetFPS(120);
 
     // Carrega de mapa
