@@ -1,7 +1,9 @@
 🏎️ Intelligent cars - Using genetic algorithms
+
 A lightweight, machine-learning visualization project built in C++ and Raylib. This simulation uses a Genetic Algorithm (Neuroevolution of augmenting topologies) to teach a population of neural-network-driven cars how to navigate a race track.
 
 🎨 How to Create Your Own Track
+
 Just edit the circuit.png file!
 The engine uses strict color coding to understand the world.
 
