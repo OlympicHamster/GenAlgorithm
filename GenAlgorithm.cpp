@@ -308,7 +308,7 @@ int main() {
             for (auto& c : cotxes) c.Dibuixar(false);
             if (!cotxes[0].estavellat) cotxes[0].Dibuixar(true);
 
-            DrawText("MODE: Entrenament F1", 10, 10, 20, YELLOW);
+            DrawText("MODE: Entrenament", 10, 10, 20, YELLOW);
             DrawText(TextFormat("Generacio: %d", generacio), 10, 40, 20, WHITE);
             DrawText("Temps Restant:", 10, 70, 15, LIGHTGRAY);
             DrawRectangle(120, 72, 200 - (frames_generacio / 6.0f), 10, RED);
