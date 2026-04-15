@@ -1,0 +1,296 @@
+#include "raylib.h"
+#include <vector>
+#include <iostream>
+#include <cmath>
+#include <algorithm>
+
+// --- MAPA DEL CIRCUIT (F1) ---
+const int COLS = 20;
+const int FILS = 15;
+const int TILE = 40;
+
+const char mapa[FILS][COLS + 1] = {
+    "00000000000000000000",
+    "01111111111111111110",
+    "01000000000000000010",
+    "01001111111111110010",
+    "01001000000000010010",
+    "01001001111110010010",
+    "01001001000010010010",
+    "01001001000010010010",
+    "01001001111010010010",
+    "01001000001010010010",
+    "01001111111010010010",
+    "01000000000010010010",
+    "02111111111110011110",
+    "00000000000000000000",
+    "00000000000000000000"
+};
+
+struct Cervell {
+    float pesos[3][2];
+    Cervell() {
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 2; j++)
+            pesos[i][j] = GetRandomValue(-100, 100) / 100.0f;
+    }
+    Cervell Mutar() {
+        Cervell fill = *this;
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 2; j++) {
+                if (GetRandomValue(0, 100) < 30)
+                    fill.pesos[i][j] += (GetRandomValue(-50, 50) / 100.0f);
+            }
+        }
+        return fill;
+    }
+};
+
+struct Cotxe {
+    float x, y, angle, velocitat;
+    bool estavellat;
+    bool ha_acabat;
+    bool passat_checkpoint;
+    float fitness;
+    int frames_inactiu; // NOVA VARIABLE: Comptador de ganduleria
+    Cervell cervell;
+    float sensors[3];
+    Color color;
+
+    Cotxe() { Reiniciar(); }
+
+    void Reiniciar() {
+        x = 60.0f;
+        y = 500.0f;
+        angle = 0.0f;
+        velocitat = 0.0f;
+        estavellat = false;
+        ha_acabat = false;
+        passat_checkpoint = false;
+        fitness = 0.0f;
+        frames_inactiu = 0; // Reiniciem el comptador
+        color = ColorFromHSV(GetRandomValue(0, 360), 0.8f, 0.9f);
+    }
+
+    bool EsDinsPista(float px, float py) {
+        int tx = (int)(px / TILE);
+        int ty = (int)(py / TILE);
+        if (tx < 0 || tx >= COLS || ty < 0 || ty >= FILS) return false;
+        return mapa[ty][tx] != '0';
+    }
+
+    float CalcularSensor(float angle_offset) {
+        float angle_raig = angle + angle_offset;
+        float dist = 0.0f;
+        float pas = 2.0f;
+
+        while (dist < 100.0f) {
+            float test_x = x + cos(angle_raig) * dist;
+            float test_y = y + sin(angle_raig) * dist;
+            if (!EsDinsPista(test_x, test_y)) break;
+            dist += pas;
+        }
+        return dist;
+    }
+
+    void Actualitzar(bool es_huma) {
+        if (estavellat || ha_acabat) return;
+
+        sensors[0] = CalcularSensor(-0.785f);
+        sensors[1] = CalcularSensor(0.0f);
+        sensors[2] = CalcularSensor(0.785f);
+
+        float input_accel = 0.0f;
+        float input_gir = 0.0f;
+
+        if (es_huma) {
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) input_accel = 1.0f;
+            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) input_accel = -1.0f;
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) input_gir = -1.0f;
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) input_gir = 1.0f;
+        }
+        else {
+            for (int i = 0; i < 3; i++) {
+                float sn = sensors[i] / 100.0f;
+                input_accel += sn * cervell.pesos[i][0];
+                input_gir += sn * cervell.pesos[i][1];
+            }
+            if (input_accel > 1.0f) input_accel = 1.0f;
+            else if (input_accel < 0.0f) input_accel = 0.0f; // CORRECCIÓ: La IA no pot anar marxa enrere
+
+            if (input_gir > 1.0f) input_gir = 1.0f;
+            else if (input_gir < -1.0f) input_gir = -1.0f;
+        }
+
+        velocitat += input_accel * 0.3f;
+        velocitat *= 0.92f;
+
+        if (abs(velocitat) > 0.1f) {
+            angle += input_gir * 0.1f * (velocitat > 0 ? 1 : -1);
+        }
+
+        x += cos(angle) * velocitat;
+        y += sin(angle) * velocitat;
+
+        // CORRECCIÓ: Sistema Anti-Mandrosos
+        if (velocitat < 0.5f) frames_inactiu++;
+        else frames_inactiu = 0;
+
+        if (frames_inactiu > 60) { // Si passa 1 segon sencer aturat o molt lent...
+            estavellat = true;     // ...l'eliminem sense pietat!
+        }
+
+        if (!EsDinsPista(x, y)) {
+            estavellat = true;
+        }
+        else if (!estavellat) {
+            fitness += velocitat;
+
+            if (x > 16 * TILE && y < 4 * TILE) passat_checkpoint = true;
+
+            int tx = (int)(x / TILE);
+            int ty = (int)(y / TILE);
+            if (tx >= 0 && tx < COLS && ty >= 0 && ty < FILS) {
+                if (mapa[ty][tx] == '2' && passat_checkpoint) {
+                    ha_acabat = true;
+                }
+            }
+        }
+    }
+
+    void Dibuixar(bool mostrar_sensors) {
+        if (mostrar_sensors && !estavellat && !ha_acabat) {
+            float angles[3] = { -0.785f, 0.0f, 0.785f };
+            for (int i = 0; i < 3; i++) {
+                float rx = x + cos(angle + angles[i]) * sensors[i];
+                float ry = y + sin(angle + angles[i]) * sensors[i];
+                DrawLine(x, y, rx, ry, Fade(GREEN, 0.5f));
+                DrawCircle(rx, ry, 3, RED);
+            }
+        }
+        Rectangle rect = { x, y, 16, 8 };
+        Vector2 origen = { 8, 4 };
+        DrawRectanglePro(rect, origen, angle * RAD2DEG, estavellat ? DARKGRAY : (ha_acabat ? GOLD : color));
+    }
+};
+
+int main() {
+    InitWindow(800, 600, "F1 Evolutiu 2D - Anti Mandrosos");
+    SetTargetFPS(120);
+
+    const int POBLACIO = 100;
+    std::vector<Cotxe> cotxes(POBLACIO);
+    Cotxe cotxe_huma;
+    cotxe_huma.color = WHITE;
+
+    int generacio = 1;
+    int mode_joc = 0;
+    int frames_generacio = 0; // NOVA VARIABLE: Temps límit per generació
+
+    while (!WindowShouldClose()) {
+        if (IsKeyPressed(KEY_P)) {
+            mode_joc = (mode_joc == 0) ? 1 : 0;
+            cotxe_huma.Reiniciar();
+        }
+
+        if (mode_joc == 0) {
+            bool tots_morts = true;
+            int index_guanyador = -1;
+
+            frames_generacio++; // Comptem el temps
+
+            for (int i = 0; i < POBLACIO; i++) {
+                cotxes[i].Actualitzar(false);
+                if (!cotxes[i].estavellat && !cotxes[i].ha_acabat) tots_morts = false;
+
+                if (cotxes[i].ha_acabat && index_guanyador == -1) {
+                    index_guanyador = i;
+                    break;
+                }
+            }
+
+            // NOVA GENERACIÓ: Per victòria, tots morts, o massa temps donant voltes
+            if (index_guanyador != -1 || tots_morts || frames_generacio > 1200) { // 900 frames = 15 segons límit
+                std::vector<Cotxe> nova_generacio(POBLACIO);
+
+                if (index_guanyador != -1) {
+                    Cotxe campio = cotxes[index_guanyador];
+                    nova_generacio[0].cervell = campio.cervell;
+                    nova_generacio[0].color = RED;
+                    for (int i = 1; i < POBLACIO; i++) {
+                        nova_generacio[i].cervell = campio.cervell.Mutar();
+                    }
+                }
+                else {
+                    std::sort(cotxes.begin(), cotxes.end(), [](const Cotxe& a, const Cotxe& b) {
+                        return a.fitness > b.fitness;
+                        });
+
+                    nova_generacio[0].cervell = cotxes[0].cervell;
+                    nova_generacio[0].color = RED;
+                    for (int i = 1; i < POBLACIO; i++) {
+                        int pare = GetRandomValue(0, 9);
+                        nova_generacio[i].cervell = cotxes[pare].cervell.Mutar();
+                    }
+                }
+
+                cotxes = nova_generacio;
+                generacio++;
+                frames_generacio = 0; // Reiniciem el rellotge
+            }
+        }
+        else {
+            cotxe_huma.Actualitzar(true);
+            if ((cotxe_huma.estavellat || cotxe_huma.ha_acabat) && IsKeyPressed(KEY_R)) {
+                cotxe_huma.Reiniciar();
+            }
+        }
+
+        // --- DIBUIXAR ---
+        BeginDrawing();
+        ClearBackground(DARKGREEN);
+
+        for (int y = 0; y < FILS; y++) {
+            for (int x = 0; x < COLS; x++) {
+                if (mapa[y][x] == '1') {
+                    DrawRectangle(x * TILE, y * TILE, TILE, TILE, DARKGRAY);
+                }
+                else if (mapa[y][x] == '2') {
+                    for (int i = 0; i < 2; i++) for (int j = 0; j < 2; j++) {
+                        Color c = ((i + j) % 2 == 0) ? WHITE : BLACK;
+                        DrawRectangle(x * TILE + (i * TILE / 2), y * TILE + (j * TILE / 2), TILE / 2, TILE / 2, c);
+                    }
+                }
+            }
+        }
+
+        if (mode_joc == 0) {
+            for (auto& c : cotxes) c.Dibuixar(false);
+            if (!cotxes[0].estavellat) cotxes[0].Dibuixar(true);
+
+            DrawText("MODE: Entrenament F1", 10, 10, 20, YELLOW);
+            DrawText(TextFormat("Generacio: %d", generacio), 10, 40, 20, WHITE);
+
+            // Barra de temps
+            DrawText("Temps Restant:", 10, 70, 15, LIGHTGRAY);
+            DrawRectangle(120, 72, 200 - (frames_generacio / 6.0f), 10, RED);
+
+            DrawText("Prem 'P' per conduir tu", 10, 100, 15, LIGHTGRAY);
+        }
+        else {
+            cotxe_huma.Dibuixar(true);
+            DrawText("MODE: Huma", 10, 10, 20, ORANGE);
+
+            if (cotxe_huma.ha_acabat) {
+                DrawText("HAS GUANYAT! Prem 'R'", 250, 300, 30, GOLD);
+            }
+            else if (cotxe_huma.estavellat) {
+                DrawText("ESTAVELLAT! Prem 'R'", 250, 300, 30, RED);
+            }
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    return 0;
+}
